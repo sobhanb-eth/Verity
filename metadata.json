@@ -1,5 +1,7 @@
 {
   "name": "Verity",
   "description": "A grounded research verification engine that uses Google Gemini to validate claims against sources with verbatim quotes and deep analysis.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }

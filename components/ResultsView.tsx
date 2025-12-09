@@ -1,31 +1,60 @@
 import React from 'react';
-import { VerityResponse } from '../types';
+import { VerityResponse, AppSettings } from '../types';
 import { ClaimCard } from './ClaimCard';
-import { CheckCircleIcon, AlertTriangleIcon, ExternalLinkIcon } from './Icons';
+import { CheckCircleIcon, AlertTriangleIcon, ExternalLinkIcon, Volume2Icon, VolumeXIcon, MicIcon } from './Icons';
 import { ExportTools } from './ExportTools';
+import { useVoice } from '../hooks/useVoice';
 
 interface ResultsViewProps {
   data: VerityResponse;
+  settings: AppSettings;
+  onStartLive: () => void;
 }
 
-export const ResultsView: React.FC<ResultsViewProps> = ({ data }) => {
+export const ResultsView: React.FC<ResultsViewProps> = ({ data, settings, onStartLive }) => {
+  const { speak, stopSpeaking, isSpeaking } = useVoice(settings);
+
+  const handleReadSummary = () => {
+    if (isSpeaking) {
+      stopSpeaking();
+    } else {
+      const textToSpeak = data.voice_response?.spoken_summary || data.summary.executive_summary;
+      speak(textToSpeak);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20">
       {/* Header Actions */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
         <h2 className="text-xl font-bold text-gray-900">Research Results</h2>
-        <ExportTools data={data} />
+        <div className="flex items-center gap-2">
+           <button
+             onClick={onStartLive}
+             className="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-full text-sm font-bold shadow-md hover:shadow-lg hover:from-indigo-700 hover:to-purple-700 transition-all"
+           >
+             <MicIcon className="w-4 h-4" /> Discuss Live
+           </button>
+           <ExportTools data={data} />
+        </div>
       </div>
 
       {/* Executive Summary */}
       <section className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
-        <div className="bg-gradient-to-r from-verity-primary to-blue-900 px-6 py-4">
+        <div className="bg-gradient-to-r from-verity-primary to-blue-900 px-6 py-4 flex justify-between items-center">
           <h3 className="text-white font-bold text-lg flex items-center gap-2">
             Executive Summary
             <span className="text-xs bg-white/20 px-2 py-0.5 rounded text-white font-normal">
               Confidence: {Math.round(data.summary.confidence_overall * 100)}%
             </span>
           </h3>
+          <button 
+            onClick={handleReadSummary}
+            className="text-white/80 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+            title={isSpeaking ? "Stop reading" : "Read summary aloud"}
+          >
+            {isSpeaking ? <VolumeXIcon className="w-5 h-5" /> : <Volume2Icon className="w-5 h-5" />}
+          </button>
         </div>
         <div className="p-6">
           <p className="text-gray-800 text-lg leading-relaxed mb-6 font-serif">
@@ -97,7 +126,20 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ data }) => {
         </div>
         <div>
           {data.claims.map((claim) => (
-            <ClaimCard key={claim.claim_id} claim={claim} sources={data.sources} />
+            <div key={claim.claim_id} className="relative group">
+              <ClaimCard claim={claim} sources={data.sources} />
+              <button 
+                onClick={() => {
+                  const spokenClaim = data.voice_response?.spoken_claims?.find(c => c.claim_id === claim.claim_id);
+                  const text = spokenClaim ? spokenClaim.spoken_text : claim.claim_text;
+                  speak(text);
+                }}
+                className="absolute top-4 right-4 text-gray-300 hover:text-verity-primary opacity-0 group-hover:opacity-100 transition-all p-1"
+                title="Read claim"
+              >
+                <Volume2Icon className="w-4 h-4" />
+              </button>
+            </div>
           ))}
         </div>
       </section>

@@ -1,3 +1,4 @@
+
 export type VerificationStatus = 'verified' | 'partial' | 'unverified' | 'disputed' | 'gap';
 export type MatchType = 'exact' | 'semantic' | 'partial' | 'contradicts';
 export type SourceType = 'official' | 'academic' | 'news' | 'blog' | 'forum' | 'social' | 'unknown';
@@ -54,6 +55,19 @@ export interface ResearchMetadata {
   claims_extracted: number;
   verification_rate: number;
   model_used?: string;
+  voice_mode_active?: boolean;
+}
+
+export interface VoiceResponse {
+  spoken_summary: string;
+  spoken_claims: Array<{
+    claim_id: string;
+    spoken_text: string;
+    spoken_verification: string;
+    spoken_source: string;
+  }>;
+  confidence_spoken: string;
+  follow_up_prompts: string[];
 }
 
 export interface VerityResponse {
@@ -63,9 +77,17 @@ export interface VerityResponse {
   sources: Source[];
   disputes?: Dispute[];
   metadata: ResearchMetadata;
-  // Metadata added by the frontend wrapper from Gemini's raw response
+  voice_response?: VoiceResponse;
   groundingMetadata?: {
     searchQueries: string[];
     webSources: Array<{ uri: string; title: string }>;
   };
+}
+
+export interface AppSettings {
+  voiceEnabled: boolean;
+  voiceName: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr';
+  speechRate: number; // 0.5 to 2.0
+  autoRead: boolean;
+  verbosity: 'brief' | 'detailed';
 }
