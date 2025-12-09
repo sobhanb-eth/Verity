@@ -22,21 +22,20 @@ export const runResearch = async (
   if (depth === "standard") depthInstruction = "Analyze 5-7 distinct high-quality sources. Provide a balanced view.";
   if (depth === "deep") depthInstruction = "Conduct an exhaustive search (10+ sources). Cross-reference extensively and look for edge cases.";
 
-  const researchPrompt = `
-    RESEARCH TASK:
-    Query: "${query}"
-    Instruction: ${depthInstruction}
-    
-    GOAL:
-    Conduct a deep research using Google Search. 
-    Provide a detailed, comprehensive report on the topic.
-    
+  const researchSystemInstruction = `
+    You are an expert research assistant.
+    GOAL: Conduct deep research using Google Search to answer the user's query.
     REQUIREMENTS:
     1. You MUST use the 'googleSearch' tool to find information.
     2. Cite your sources in the text using [1], [2] format corresponding to the search results.
     3. If there are conflicting views, explain the dispute clearly.
     4. Provide specific data points, dates, and names where available.
-    5. Do not worry about JSON formatting yet. Just output high-quality grounded text.
+    5. Output the result as a comprehensive text report.
+  `;
+
+  const researchPrompt = `
+    RESEARCH QUERY: "${query}"
+    INSTRUCTION: ${depthInstruction}
   `;
 
   try {
@@ -44,6 +43,7 @@ export const runResearch = async (
       model: "gemini-2.5-flash",
       contents: researchPrompt,
       config: {
+        systemInstruction: researchSystemInstruction,
         tools: [{ googleSearch: {} }],
         safetySettings: [
           { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -55,11 +55,20 @@ export const runResearch = async (
     });
 
     const researchText = searchResponse.text;
+    const finishReason = searchResponse.candidates?.[0]?.finishReason;
     
     // Check if the research step actually produced text
     if (!researchText) {
-      console.warn("Step 1 (Search) returned no text. FinishReason:", searchResponse.candidates?.[0]?.finishReason);
-      throw new Error("Verity could not find information on this topic. The research step returned no text.");
+      console.warn("Step 1 (Search) returned no text. FinishReason:", finishReason);
+      
+      let errorMessage = "Verity could not find information on this topic.";
+      if (finishReason === "SAFETY") {
+        errorMessage = "The research was blocked due to safety content filters.";
+      } else if (finishReason === "RECITATION") {
+        errorMessage = "The research was blocked due to recitation of copyrighted content.";
+      }
+      
+      throw new Error(errorMessage + " (Step 1 No Text)");
     }
 
     // Capture Grounding Metadata to pass to Step 2

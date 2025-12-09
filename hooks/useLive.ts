@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { getLiveClient } from '../services/geminiService';
 import { LiveServerMessage, Modality, Blob } from '@google/genai';
 import { AppSettings } from '../types';
+import { VERITY_PERSONA } from '../constants';
 
 function createBlob(data: Float32Array): Blob {
   const l = data.length;
@@ -124,29 +125,29 @@ export const useLive = (settings: AppSettings, contextText: string) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const config = {
+      const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-        systemInstruction: `
-          You are Verity Live, an intelligent research assistant.
-          You have just conducted a research session.
-          
-          CONTEXT (Research Results):
-          ${contextText.slice(0, 10000)}
-          
-          Your goal is to discuss this research with the user.
-          Be concise, spoken, and natural.
-          Use the voice specified in settings if possible.
-        `,
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.voiceName || 'Zephyr' } },
           },
+          // System instruction MUST be inside the config object
+          systemInstruction: `
+          ${VERITY_PERSONA}
+          
+          You are now in LIVE VOICE MODE.
+          
+          CONTEXT (Research Results):
+          ${contextText.slice(0, 20000)}
+          
+          INSTRUCTIONS:
+          1. Answer questions about the research findings concisely.
+          2. Use natural, conversational language (avoid reading bullet points like a robot).
+          3. If asked about something not in the context, clearly state that it wasn't part of the research.
+          4. Be helpful and ready to clarify the claims.
+        `,
         },
-      };
-
-      const sessionPromise = ai.live.connect({
-        ...config,
         callbacks: {
           onopen: () => {
             console.log("Live Session Opened");

@@ -13,9 +13,23 @@ export const LiveDiscussion: React.FC<LiveDiscussionProps> = ({ data, settings, 
   // Construct context string for the model
   const context = `
     TOPIC: ${data.query}
-    SUMMARY: ${data.summary.executive_summary}
-    KEY FINDINGS: ${data.summary.key_findings.join('; ')}
-    CLAIMS: ${data.claims.map(c => c.claim_text + ' (' + c.verification_status + ')').join('; ')}
+    
+    EXECUTIVE SUMMARY: 
+    ${data.summary.executive_summary}
+    
+    KEY FINDINGS:
+    ${data.summary.key_findings.map(f => `- ${f}`).join('\n')}
+    
+    DETAILED CLAIMS & VERIFICATION:
+    ${data.claims.map(c => `
+      CLAIM: "${c.claim_text}"
+      STATUS: ${c.verification_status} (Confidence: ${Math.round(c.confidence * 100)}%)
+      EVIDENCE CHAIN: ${c.verification_chain}
+      SOURCE QUOTE: "${c.sources[0]?.verbatim_quote || 'N/A'}"
+    `).join('\n')}
+    
+    DISPUTES:
+    ${data.disputes?.map(d => `${d.topic}: ${d.assessment}`).join('\n') || 'None'}
   `;
 
   const { connect, disconnect, connected, isTalking, error } = useLive(settings, context);
