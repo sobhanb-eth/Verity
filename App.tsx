@@ -80,6 +80,30 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDataUpdate = (newData: Partial<VerityResponse>) => {
+    setResult(prev => {
+      if (!prev) return null;
+      
+      // Merge new data into existing result
+      // We append new claims, sources, and update summary if needed
+      return {
+        ...prev,
+        claims: [...prev.claims, ...(newData.claims || [])],
+        sources: [...prev.sources, ...(newData.sources || [])],
+        summary: {
+          ...prev.summary,
+          // Append new key findings if they exist
+          key_findings: [...prev.summary.key_findings, ...(newData.summary?.key_findings || [])]
+        },
+        metadata: {
+          ...prev.metadata,
+          claims_extracted: prev.metadata.claims_extracted + (newData.claims?.length || 0),
+          sources_analyzed: prev.metadata.sources_analyzed + (newData.sources?.length || 0)
+        }
+      };
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
       {/* Settings Modal */}
@@ -96,6 +120,7 @@ const App: React.FC = () => {
           data={result}
           settings={settings}
           onClose={() => setShowLiveMode(false)}
+          onUpdateData={handleDataUpdate}
         />
       )}
 

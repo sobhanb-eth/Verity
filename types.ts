@@ -91,3 +91,5 @@ export interface AppSettings {
   autoRead: boolean;
   verbosity: 'brief' | 'detailed';
 }
+
+export type DataUpdateHandler = (newData: Partial<VerityResponse>) => void;

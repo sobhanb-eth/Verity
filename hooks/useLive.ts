@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { getLiveClient } from '../services/geminiService';
-import { LiveServerMessage, Modality, Blob } from '@google/genai';
-import { AppSettings } from '../types';
+import { getLiveClient, performTargetedResearch } from '../services/geminiService';
+import { LiveServerMessage, Modality, Blob, FunctionDeclaration, Type } from '@google/genai';
+import { AppSettings, DataUpdateHandler } from '../types';
 import { VERITY_PERSONA } from '../constants';
 
 function createBlob(data: Float32Array): Blob {
@@ -10,7 +10,6 @@ function createBlob(data: Float32Array): Blob {
   for (let i = 0; i < l; i++) {
     int16[i] = data[i] * 32768;
   }
-  // Simplified encoding for browser usage
   const uint8 = new Uint8Array(int16.buffer);
   let binary = '';
   const len = uint8.byteLength;
@@ -54,9 +53,30 @@ async function decodeAudioData(
   return buffer;
 }
 
-export const useLive = (settings: AppSettings, contextText: string) => {
+// --- Tool Definition ---
+const verificationTool: FunctionDeclaration = {
+  name: 'verify_new_claim',
+  description: 'Conducts real-time research to verify a specific claim or finding that is not in the current context. Use this when the user asks a question you do not know the answer to.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      query: {
+        type: Type.STRING,
+        description: 'The specific question or claim to verify (e.g., "What is the battery life of the device?" or "Did the bill pass in 2024?")',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+export const useLive = (
+  settings: AppSettings, 
+  contextText: string, 
+  onDataUpdate?: DataUpdateHandler
+) => {
   const [connected, setConnected] = useState(false);
-  const [isTalking, setIsTalking] = useState(false); // Model is talking
+  const [isTalking, setIsTalking] = useState(false);
+  const [isProcessingTool, setIsProcessingTool] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -68,23 +88,16 @@ export const useLive = (settings: AppSettings, contextText: string) => {
   const sessionRef = useRef<Promise<any> | null>(null);
 
   const disconnect = useCallback(() => {
-    // 1. Close session
     if (sessionRef.current) {
       sessionRef.current.then(s => {
-        try {
-           s.close();
-        } catch(e) {}
+        try { s.close(); } catch(e) {}
       });
       sessionRef.current = null;
     }
-
-    // 2. Stop microphone
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
-
-    // 3. Close Audio Contexts
     if (inputContextRef.current) {
       inputContextRef.current.close();
       inputContextRef.current = null;
@@ -94,17 +107,14 @@ export const useLive = (settings: AppSettings, contextText: string) => {
       scriptProcessorRef.current = null;
     }
     if (audioContextRef.current) {
-        // Stop all playing sources
-        sourcesRef.current.forEach(s => {
-            try { s.stop(); } catch(e){}
-        });
+        sourcesRef.current.forEach(s => { try { s.stop(); } catch(e){} });
         sourcesRef.current.clear();
         audioContextRef.current.close();
         audioContextRef.current = null;
     }
-
     setConnected(false);
     setIsTalking(false);
+    setIsProcessingTool(false);
   }, []);
 
   const connect = useCallback(async () => {
@@ -112,7 +122,6 @@ export const useLive = (settings: AppSettings, contextText: string) => {
       setError(null);
       const ai = getLiveClient();
 
-      // Setup Audio Contexts
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       const inputCtx = new AudioContextClass({ sampleRate: 16000 });
       const outputCtx = new AudioContextClass({ sampleRate: 24000 });
@@ -121,7 +130,6 @@ export const useLive = (settings: AppSettings, contextText: string) => {
       audioContextRef.current = outputCtx;
       nextStartTimeRef.current = outputCtx.currentTime;
 
-      // Get Microphone Stream
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
@@ -132,28 +140,26 @@ export const useLive = (settings: AppSettings, contextText: string) => {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: settings.voiceName || 'Zephyr' } },
           },
-          // System instruction MUST be inside the config object
+          tools: [{ functionDeclarations: [verificationTool] }],
           systemInstruction: `
           ${VERITY_PERSONA}
           
           You are now in LIVE VOICE MODE.
           
-          CONTEXT (Research Results):
-          ${contextText.slice(0, 20000)}
+          INITIAL RESEARCH CONTEXT:
+          ${contextText.slice(0, 15000)}
           
           INSTRUCTIONS:
-          1. Answer questions about the research findings concisely.
-          2. Use natural, conversational language (avoid reading bullet points like a robot).
-          3. If asked about something not in the context, clearly state that it wasn't part of the research.
-          4. Be helpful and ready to clarify the claims.
+          1. Discuss the research findings naturally.
+          2. **CRITICAL**: If the user asks a question that is NOT answered by the context above, do not say "I don't know." Instead, call the 'verify_new_claim' tool with the specific question.
+          3. When you call the tool, tell the user "One moment, I'm checking that for you..." while you wait.
+          4. Once the tool returns data, incorporate it into your answer and inform the user that you've added it to their report.
         `,
         },
         callbacks: {
           onopen: () => {
             console.log("Live Session Opened");
             setConnected(true);
-
-            // Setup Input Processing
             const source = inputCtx.createMediaStreamSource(stream);
             const processor = inputCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessorRef.current = processor;
@@ -170,51 +176,71 @@ export const useLive = (settings: AppSettings, contextText: string) => {
             processor.connect(inputCtx.destination);
           },
           onmessage: async (msg: LiveServerMessage) => {
+            // Handle Tool Calls (The model wants to research something)
+            if (msg.toolCall) {
+              setIsProcessingTool(true);
+              for (const fc of msg.toolCall.functionCalls) {
+                if (fc.name === 'verify_new_claim') {
+                   const query = (fc.args as any).query;
+                   console.log("Tool Triggered: verify_new_claim", query);
+                   
+                   // Execute the research on client/service side
+                   const result = await performTargetedResearch(query);
+                   
+                   // Update the UI state via callback
+                   if (onDataUpdate && result) {
+                     onDataUpdate(result);
+                   }
+
+                   // Send response back to model
+                   const toolResponse = {
+                     result: `Verification Complete. Found ${result.claims?.length} new claims and ${result.sources?.length} sources. 
+                              Summary of findings: ${result.summary?.executive_summary}. 
+                              Top Fact: ${result.claims?.[0]?.claim_text}`
+                   };
+
+                   sessionPromise.then((session) => {
+                     session.sendToolResponse({
+                       functionResponses: {
+                         id: fc.id,
+                         name: fc.name,
+                         response: toolResponse
+                       }
+                     });
+                   });
+                }
+              }
+              setIsProcessingTool(false);
+            }
+
+            // Handle Audio Response
             const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            
             if (base64Audio) {
               setIsTalking(true);
               const ctx = audioContextRef.current;
               if (!ctx) return;
-
-              // Ensure we schedule after current time
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-
-              const audioBuffer = await decodeAudioData(
-                decode(base64Audio),
-                ctx,
-                24000,
-                1
-              );
-
+              const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
               const source = ctx.createBufferSource();
               source.buffer = audioBuffer;
               source.connect(ctx.destination);
-              
               source.onended = () => {
                   sourcesRef.current.delete(source);
-                  if (sourcesRef.current.size === 0) {
-                      setIsTalking(false);
-                  }
+                  if (sourcesRef.current.size === 0) setIsTalking(false);
               };
-
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               sourcesRef.current.add(source);
             }
 
             if (msg.serverContent?.interrupted) {
-                // Clear queue
-                sourcesRef.current.forEach(s => {
-                    try { s.stop(); } catch(e){}
-                });
+                sourcesRef.current.forEach(s => { try { s.stop(); } catch(e){} });
                 sourcesRef.current.clear();
                 nextStartTimeRef.current = 0;
                 setIsTalking(false);
             }
           },
           onclose: () => {
-            console.log("Live Session Closed");
             disconnect();
           },
           onerror: (err) => {
@@ -224,17 +250,14 @@ export const useLive = (settings: AppSettings, contextText: string) => {
           }
         }
       });
-
       sessionRef.current = sessionPromise;
-
     } catch (err: any) {
       console.error("Connection failed", err);
       setError(err.message || "Failed to start live session");
       disconnect();
     }
-  }, [contextText, settings.voiceName, disconnect]);
+  }, [contextText, settings.voiceName, disconnect, onDataUpdate]);
 
-  // Clean up on unmount
   useEffect(() => {
     return () => disconnect();
   }, [disconnect]);
@@ -244,6 +267,7 @@ export const useLive = (settings: AppSettings, contextText: string) => {
     disconnect,
     connected,
     isTalking,
+    isProcessingTool,
     error
   };
 };

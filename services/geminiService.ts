@@ -145,6 +145,23 @@ export const runResearch = async (
 };
 
 /**
+ * A lighter version of research specifically for the Live tool to call.
+ * It finds a specific answer and returns structured data to update the UI.
+ */
+export const performTargetedResearch = async (query: string): Promise<Partial<VerityResponse>> => {
+  try {
+     return await runResearch(query, 'quick', false);
+  } catch (e) {
+    console.error("Targeted research failed", e);
+    // Return empty partial if failed, so the conversation can continue
+    return {
+      claims: [],
+      sources: []
+    }
+  }
+};
+
+/**
  * Generates speech from text using Gemini 2.5 Flash TTS
  */
 export const generateSpeech = async (text: string, voiceName: string = 'Puck'): Promise<string | undefined> => {

@@ -1,15 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useLive } from '../hooks/useLive';
-import { AppSettings, VerityResponse } from '../types';
-import { MicIcon, XCircleIcon } from './Icons';
+import { AppSettings, VerityResponse, DataUpdateHandler } from '../types';
+import { MicIcon, XCircleIcon, SearchIcon } from './Icons';
 
 interface LiveDiscussionProps {
   data: VerityResponse;
   settings: AppSettings;
   onClose: () => void;
+  onUpdateData: DataUpdateHandler;
 }
 
-export const LiveDiscussion: React.FC<LiveDiscussionProps> = ({ data, settings, onClose }) => {
+export const LiveDiscussion: React.FC<LiveDiscussionProps> = ({ data, settings, onClose, onUpdateData }) => {
   // Construct context string for the model
   const context = `
     TOPIC: ${data.query}
@@ -32,7 +33,7 @@ export const LiveDiscussion: React.FC<LiveDiscussionProps> = ({ data, settings, 
     ${data.disputes?.map(d => `${d.topic}: ${d.assessment}`).join('\n') || 'None'}
   `;
 
-  const { connect, disconnect, connected, isTalking, error } = useLive(settings, context);
+  const { connect, disconnect, connected, isTalking, isProcessingTool, error } = useLive(settings, context, onUpdateData);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
@@ -84,12 +85,19 @@ export const LiveDiscussion: React.FC<LiveDiscussionProps> = ({ data, settings, 
              <div className={`absolute inset-0 rounded-full border-2 border-white/10 transition-all duration-500 ${isTalking ? 'scale-110 border-blue-500/50' : 'scale-100'}`}></div>
              
              {/* Pulsing Core */}
-             <div className={`w-32 h-32 bg-gradient-to-tr from-verity-primary to-purple-600 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(37,99,235,0.5)] transition-all duration-300 ${isTalking ? 'scale-110 shadow-[0_0_60px_rgba(37,99,235,0.8)]' : 'scale-100'}`}>
-                <MicIcon className="w-12 h-12 text-white" />
+             <div className={`w-32 h-32 bg-gradient-to-tr transition-all duration-300 rounded-full flex items-center justify-center shadow-[0_0_40px_rgba(37,99,235,0.5)] 
+               ${isTalking ? 'scale-110 shadow-[0_0_60px_rgba(37,99,235,0.8)] from-verity-primary to-purple-600' : ''}
+               ${isProcessingTool ? 'animate-spin from-yellow-500 to-orange-500' : 'from-verity-primary to-purple-600'}
+             `}>
+                {isProcessingTool ? (
+                  <SearchIcon className="w-12 h-12 text-white animate-pulse" />
+                ) : (
+                  <MicIcon className="w-12 h-12 text-white" />
+                )}
              </div>
 
              {/* Ripple Effects (CSS Animation) */}
-             {isTalking && (
+             {isTalking && !isProcessingTool && (
                <>
                  <div className="absolute inset-0 rounded-full border border-blue-400/30 animate-[ping_2s_linear_infinite]"></div>
                  <div className="absolute inset-0 rounded-full border border-purple-400/30 animate-[ping_2s_linear_infinite_0.5s]"></div>
@@ -100,10 +108,10 @@ export const LiveDiscussion: React.FC<LiveDiscussionProps> = ({ data, settings, 
           {/* Info Text */}
           <div className="max-w-xs mx-auto">
              <p className="text-lg font-medium text-white/90">
-               {isTalking ? "Verity is speaking..." : "Listening to you..."}
+               {isProcessingTool ? "Verifying new information..." : isTalking ? "Verity is speaking..." : "Listening to you..."}
              </p>
              <p className="text-sm text-white/40 mt-2">
-               Ask follow-up questions about the research findings.
+               {isProcessingTool ? "Adding findings to your report." : "Ask follow-up questions to dig deeper."}
              </p>
           </div>
 
